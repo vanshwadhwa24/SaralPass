@@ -29,6 +29,8 @@ async function fetchLiveStatus(trainNo) {
     return null;
   }
 }
+module.exports = fetchLiveStatus;
+
 
 // Test run
 (async () => {
