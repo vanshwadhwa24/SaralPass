@@ -1,3 +1,5 @@
+// Add your scripts here 
+
 document.addEventListener('DOMContentLoaded', () => {
     const menuToggle = document.getElementById('menu-toggle');
     const expandableMenu = document.getElementById('expandable-menu');
@@ -8,11 +10,19 @@ document.addEventListener('DOMContentLoaded', () => {
     const searchSuggestionsContainer = document.getElementById('search-suggestions-container');
     const zoomInButton = document.getElementById('zoom-in');
     const zoomOutButton = document.getElementById('zoom-out');
+    const selectLocationBtn = document.getElementById('select-location-btn');
 
     let userCoords = null;
-    let userLocationInfo = null; 
+    let userLocationInfo = null;
     let debounceTimer = null;
     const OPENCAGE_API_KEY = 'c5fff8aba63d4fd2aa64d2d14c320f5a';
+    let routePolyline = null;
+    let currentRouteAbortController = null;
+    let currentDestination = null;
+    let userLocationWatchId = null;
+    let locatingToastId = null;
+    let clickMarker = null;
+    let isSelectLocationMode = false;
 
     const map = L.map('map-container', {
         center: [30.3398, 76.3869],
@@ -25,7 +35,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let userLocationMarker = null;
 
-    // --- Recent Searches ---
     const RECENT_SEARCHES_KEY = 'recent_searches';
     const RECENT_SEARCHES_LIMIT = 5;
 
@@ -35,10 +44,14 @@ document.addEventListener('DOMContentLoaded', () => {
     function addRecentSearch(query) {
         if (!query) return;
         let recents = getRecentSearches();
-        // Remove if already exists
-        recents = recents.filter(item => item !== query);
+        recents = recents.filter(item => item.toLowerCase() !== query.toLowerCase());
         recents.unshift(query);
         if (recents.length > RECENT_SEARCHES_LIMIT) recents = recents.slice(0, RECENT_SEARCHES_LIMIT);
+        localStorage.setItem(RECENT_SEARCHES_KEY, JSON.stringify(recents));
+    }
+    function removeRecentSearch(query) {
+        let recents = getRecentSearches();
+        recents = recents.filter(item => item.toLowerCase() !== query.toLowerCase());
         localStorage.setItem(RECENT_SEARCHES_KEY, JSON.stringify(recents));
     }
     let selectedSuggestionIndex = -1;
@@ -69,17 +82,43 @@ document.addEventListener('DOMContentLoaded', () => {
         searchSuggestionsContainer.innerHTML = '';
         selectedSuggestionIndex = -1;
         if (recents.length === 0) {
-            searchSuggestionsContainer.innerHTML = '<div class="suggestion-no-results">No recent searches</div>';
+            searchSuggestionsContainer.classList.remove('visible');
+            return;
         } else {
             positionSuggestions();
             recents.forEach(query => {
                 const item = document.createElement('div');
                 item.classList.add('suggestion-item');
-                item.innerHTML = `<span class="suggestion-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg></span><span>${query}</span>`;
-                item.addEventListener('click', () => {
+                item.dataset.query = query;
+                item.innerHTML = `
+                    <span class="suggestion-icon">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                    </span>
+                    <span class="suggestion-text">${query}</span>
+                    <button class="delete-suggestion">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" stroke="#888" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                    </button>`;
+
+                item.addEventListener('click', (e) => {
+                    if (e.target.closest('.delete-suggestion')) {
+                        return;
+                    }
                     searchInput.value = query;
+                    addRecentSearch(query);
                     fetchSuggestions();
                 });
+
+                const deleteBtn = item.querySelector('.delete-suggestion');
+                deleteBtn.addEventListener('click', (e) => {
+                    e.stopPropagation(); 
+                    const queryToDelete = item.dataset.query;
+                    removeRecentSearch(queryToDelete);
+                    item.remove(); 
+                    if (getRecentSearches().length === 0) {
+                        searchSuggestionsContainer.classList.remove('visible');
+                    }
+                });
+
                 searchSuggestionsContainer.appendChild(item);
             });
         }
@@ -119,6 +158,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (expandableMenu.classList.contains('open')) {
                     toggleMenu();
                 }
+                if (userCoords) {
+                    getRouteAndDisplay(userCoords, { lat, lng }, data.results[0].formatted);
+                } else {
+                    showToast('User location not available for routing.');
+                }
             } else {
                 showToast('Location not found. Please try another search.');
             }
@@ -128,29 +172,44 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
+    let suggestionCache = {};
+    let suggestionFetchAbortController = null;
+
     const fetchSuggestions = async () => {
-        let query = searchInput.value;
-        if (query.length < 1) {
+        let query = searchInput.value.trim();
+        if (query.length < 2) {
             searchSuggestionsContainer.classList.remove('visible');
             return;
         }
-
         if (userLocationInfo) {
             const context = [userLocationInfo.city, userLocationInfo.state, userLocationInfo.country].filter(Boolean).join(', ');
             query = `${query}, ${context}`;
         }
-
+        if (suggestionCache[query]) {
+            displaySuggestions(suggestionCache[query]);
+            return;
+        }
+        if (suggestionFetchAbortController) {
+            suggestionFetchAbortController.abort();
+        }
+        suggestionFetchAbortController = new AbortController();
+        searchSuggestionsContainer.innerHTML = '<div class="suggestion-no-results"><span class="spinner"></span> Loading...</div>';
+        searchSuggestionsContainer.classList.add('visible');
         let apiUrl = `https://api.opencagedata.com/geocode/v1/json?q=${encodeURIComponent(query)}&key=${OPENCAGE_API_KEY}&limit=5&min_confidence=3`;
         if (userCoords) {
             apiUrl += `&proximity=${userCoords.lat},${userCoords.lng}`;
         }
-        
         try {
-            const response = await fetch(apiUrl);
+            const response = await fetch(apiUrl, { signal: suggestionFetchAbortController.signal });
             const data = await response.json();
+            suggestionCache[query] = data.results;
             displaySuggestions(data.results);
         } catch (error) {
-            console.error("Suggestion fetch failed:", error);
+            if (error.name === 'AbortError') {
+         
+                return;
+            }
+            searchSuggestionsContainer.innerHTML = '<div class="suggestion-no-results">Failed to load suggestions</div>';
         }
     };
 
@@ -165,13 +224,10 @@ document.addEventListener('DOMContentLoaded', () => {
         searchSuggestionsContainer.innerHTML = '';
         selectedSuggestionIndex = -1;
         if (!suggestions || suggestions.length === 0) {
-            searchSuggestionsContainer.innerHTML = '<div class="suggestion-no-results">No results found</div>';
-            searchSuggestionsContainer.classList.add('visible');
+            searchSuggestionsContainer.classList.remove('visible');
             return;
         }
-
         positionSuggestions();
-
         suggestions.forEach(result => {
             const item = document.createElement('div');
             item.classList.add('suggestion-item');
@@ -191,19 +247,23 @@ document.addEventListener('DOMContentLoaded', () => {
                 const { lat, lng } = result.geometry;
                 const location = new L.LatLng(lat, lng);
                 map.setView(location, 15);
-                
                 if (userLocationMarker) map.removeLayer(userLocationMarker);
                 userLocationMarker = L.marker(location).addTo(map).bindPopup(result.formatted).openPopup();
-                
-                searchInput.value = '';
+                addRecentSearch(result.formatted); 
+                searchInput.value = result.formatted;
                 searchSuggestionsContainer.classList.remove('visible');
                 if (expandableMenu.classList.contains('open')) {
                     toggleMenu();
                 }
+       
+                if (userCoords) {
+                    getRouteAndDisplay(userCoords, { lat, lng }, result.formatted);
+                } else {
+                    showToast('User location not available for routing.');
+                }
             });
             searchSuggestionsContainer.appendChild(item);
         });
-
         searchSuggestionsContainer.classList.add('visible');
     };
 
@@ -218,7 +278,7 @@ document.addEventListener('DOMContentLoaded', () => {
             showRecentSearches();
             return;
         }
-        debounceTimer = setTimeout(fetchSuggestions, 100);
+        debounceTimer = setTimeout(fetchSuggestions, 250);
     });
 
     searchInput.addEventListener('keydown', (event) => {
@@ -252,45 +312,56 @@ document.addEventListener('DOMContentLoaded', () => {
     mapOverlay.addEventListener('click', toggleMenu);
 
     const findUserLocation = () => {
-        if (!navigator.geolocation) {
-            showToast("Geolocation is not supported by your browser.");
-            return;
-        }
-        navigator.geolocation.getCurrentPosition(
-            async (position) => {
-                const { latitude, longitude } = position.coords;
-                
-
-                userCoords = {
-                    lat: latitude,
-                    lng: longitude
-                };
-                const response = await fetch(`https://api.opencagedata.com/geocode/v1/json?q=${userCoords.lat}+${userCoords.lng}&key=${OPENCAGE_API_KEY}`);
-                const data = await response.json();
-                if (data.results && data.results.length > 0) {
-                    const components = data.results[0].components;
-                    userLocationInfo = {
-                        city: components.city || components.town || components.village,
-                        state: components.state,
-                        country: components.country
-                    };
-                }
-
-                const location = new L.LatLng(latitude, longitude);
-                map.setView(location, 15);
-                if (userLocationMarker) map.removeLayer(userLocationMarker);
-                userLocationMarker = L.circleMarker(location, { radius: 8, color: '#fff', weight: 2, fillColor: '#004D98', fillOpacity: 1 }).addTo(map).bindPopup('<span class="large-popup-text">You are here</span>').openPopup();
-            },
-            () => {
-                showToast("Unable to retrieve your location. Please ensure location services are enabled.");
+        return new Promise((resolve, reject) => {
+            if (!navigator.geolocation) {
+                showToast('Geolocation is not supported by your browser.');
+                reject('Geolocation not supported');
+                return;
             }
-        );
+            navigator.geolocation.getCurrentPosition(
+                (position) => {
+                    resolve({
+                        lat: position.coords.latitude,
+                        lng: position.coords.longitude
+                    });
+                },
+                (error) => {
+                    if (error.code === error.PERMISSION_DENIED) {
+                        showToast('Location permission denied. Please allow location access for routing.');
+                    } else {
+                        showToast('Unable to retrieve your location.');
+                    }
+                    reject(error);
+                }
+            );
+        });
     };
 
-    navButton.addEventListener('click', findUserLocation);
+    async function showUserLocationOnMap(coords) {
+        if (!coords) return;
+        const location = new L.LatLng(coords.lat, coords.lng);
+        map.setView(location, 15);
+        if (userLocationMarker) map.removeLayer(userLocationMarker);
+        userLocationMarker = L.circleMarker(location, { radius: 8, color: '#fff', weight: 2, fillColor: '#004D98', fillOpacity: 1 }).addTo(map).bindPopup('<span class="large-popup-text">You are here</span>').openPopup();
+        console.log('User location shown on map:', coords);
+    }
+
+    navButton.addEventListener('click', () => {
+        if (routePolyline) {
+            map.fitBounds(routePolyline.getBounds(), { padding: [50, 50] });
+        } else if (userCoords) {
+            const location = new L.LatLng(userCoords.lat, userCoords.lng);
+            map.setView(location, 15);
+            if (userLocationMarker) {
+                userLocationMarker.openPopup();
+            }
+        } else {
+            showToast('User location not available.');
+        }
+    });
 
     document.addEventListener('click', (event) => {
-        if (!event.target.closest('.search-bar-container')) {
+        if (!searchSuggestionsContainer.contains(event.target) && event.target !== searchInput) {
             searchSuggestionsContainer.classList.remove('visible');
         }
     });
@@ -309,7 +380,7 @@ document.addEventListener('DOMContentLoaded', () => {
     zoomInButton.addEventListener('click', () => map.zoomIn());
     zoomOutButton.addEventListener('click', () => map.zoomOut());
 
-    // --- Location Permission Popup ---
+
     function checkAndShowLocationPopup() {
         if (!navigator.permissions || !navigator.geolocation) return;
         navigator.permissions.query({ name: 'geolocation' }).then(function(result) {
@@ -330,6 +401,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const allowBtn = document.getElementById('location-popup-allow');
     if (allowBtn) {
         allowBtn.addEventListener('click', function() {
+      
             if (navigator.geolocation) {
                 navigator.geolocation.getCurrentPosition(function() {}, function() {});
             }
@@ -356,4 +428,236 @@ document.addEventListener('DOMContentLoaded', () => {
             }, 1100);
         });
     }
+
+    function formatDurationMinutes(durationMin) {
+        const hr = Math.floor(durationMin / 60);
+        const min = durationMin % 60;
+        if (hr > 0) {
+            return `${hr} hr${hr > 1 ? 's' : ''} ${min} min`;
+        } else {
+            return `${min} min`;
+        }
+    }
+
+    function showRouteInfoBox(distanceKm, durationMin, destName) {
+        const box = document.getElementById('route-info-box');
+        const etaStr = formatDurationMinutes(durationMin);
+        box.innerHTML = `
+            <span class="route-icon">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#004D98" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>
+            </span>
+            <span>Route to <b>${destName}</b>: <span style="color:#004D98">${distanceKm} km</span>, ETA: <span style="color:#004D98">${etaStr}</span></span>
+        `;
+        box.classList.add('visible');
+        box.style.display = '';
+    }
+    function hideRouteInfoBox() {
+        const box = document.getElementById('route-info-box');
+        box.classList.remove('visible');
+        setTimeout(() => { box.style.display = 'none'; }, 300);
+    }
+
+    function showFindingRouteInInfoBox(destName) {
+        const box = document.getElementById('route-info-box');
+        box.innerHTML = `
+            <span class="spinner"></span> 
+            <span>Finding route to <b>${destName}</b>...</span>
+        `;
+        box.classList.add('visible');
+        box.style.display = '';
+    }
+
+    async function getRouteAndDisplay(userCoords, destCoords, destName) {
+        if (!userCoords || !destCoords) return;
+        currentDestination = { lat: destCoords.lat, lng: destCoords.lng, name: destName };
+      
+        if (routePolyline) {
+            map.removeLayer(routePolyline);
+            routePolyline = null;
+        }
+
+        if (currentRouteAbortController) {
+            currentRouteAbortController.abort();
+        }
+        currentRouteAbortController = new AbortController();
+      
+        showFindingRouteInInfoBox(destName);
+        try {
+      
+            const url = `https://router.project-osrm.org/route/v1/driving/${userCoords.lng},${userCoords.lat};${destCoords.lng},${destCoords.lat}?overview=full&geometries=geojson`;
+            console.log('Requesting route (OSRM):', url);
+            const response = await fetch(url, { signal: currentRouteAbortController.signal });
+            console.log('Route API response status:', response.status);
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error('Route API error:', errorText);
+                throw new Error('Route fetch failed');
+            }
+            const data = await response.json();
+            console.log('Route API data:', data);
+            if (!data.routes || !data.routes[0] || !data.routes[0].geometry) {
+                showToast('No route found between your location and the destination.');
+                hideRouteInfoBox();
+                console.error('No route found. Full API response:', data);
+                return;
+            }
+        
+            const route = data.routes[0].geometry.coordinates.map(([lng, lat]) => [lat, lng]);
+            routePolyline = L.polyline(route, { color: '#004D98', weight: 5, opacity: 0.8 }).addTo(map);
+            map.fitBounds(routePolyline.getBounds(), { padding: [50, 50] });
+        
+            const summary = data.routes[0];
+            const durationMin = Math.round(summary.duration / 60);
+            const distanceKm = (summary.distance / 1000).toFixed(2);
+            showRouteInfoBox(distanceKm, durationMin, destName);
+        } catch (err) {
+            if (err.name === 'AbortError') {
+                console.log('Previous route fetch aborted.');
+                hideRouteInfoBox();
+                return;
+            }
+            showToast('Could not fetch route/ETA.');
+            hideRouteInfoBox();
+            console.error('Route fetch exception:', err);
+        } finally {
+            currentRouteAbortController = null;
+        }
+    }
+
+  
+    function startWatchingUserLocation() {
+        if (!navigator.geolocation) {
+            showToast('Geolocation is not supported by your browser.');
+            return;
+        }
+        if (userLocationWatchId !== null) {
+            navigator.geolocation.clearWatch(userLocationWatchId);
+        }
+        userLocationWatchId = navigator.geolocation.watchPosition(
+            (position) => {
+                userCoords = {
+                    lat: position.coords.latitude,
+                    lng: position.coords.longitude
+                };
+                showUserLocationOnMap(userCoords);
+            
+                if (currentDestination) {
+                    getRouteAndDisplay(userCoords, { lat: currentDestination.lat, lng: currentDestination.lng }, currentDestination.name);
+                }
+            },
+            (error) => {
+                if (error.code === error.PERMISSION_DENIED) {
+                    showToast('Location permission denied. Please allow location access for routing.');
+                } else {
+                    showToast('Unable to retrieve your location.');
+                }
+                userCoords = null;
+                if (userLocationMarker) {
+                    map.removeLayer(userLocationMarker);
+                    userLocationMarker = null;
+                }
+            },
+            { enableHighAccuracy: true, maximumAge: 10000, timeout: 10000 }
+        );
+    }
+
+    selectLocationBtn.addEventListener('click', () => {
+        isSelectLocationMode = !isSelectLocationMode;
+        selectLocationBtn.classList.toggle('active', isSelectLocationMode);
+        document.getElementById('map-container').classList.toggle('pin-drop-mode', isSelectLocationMode);
+        if (isSelectLocationMode) {
+            showToast('Select a location on the map.');
+            selectLocationBtn.setAttribute('data-tooltip', 'Disable Pin Drop Location Mode');
+        } else {
+            showToast('Selection mode disabled.');
+            selectLocationBtn.setAttribute('data-tooltip', 'Enable Pin Drop Location Mode');
+            if (clickMarker) {
+                map.removeLayer(clickMarker);
+                clickMarker = null;
+            }
+        }
+    });
+
+    map.on('click', onMapClick);
+
+    async function onMapClick(e) {
+        if (!isSelectLocationMode) return;
+        
+        const { lat, lng } = e.latlng;
+
+        if (clickMarker) {
+            map.removeLayer(clickMarker);
+        }
+
+        clickMarker = L.marker([lat, lng]).addTo(map);
+        clickMarker.bindPopup("Resolving location...").openPopup();
+
+        // Disable pin drop mode as soon as a pin is dropped
+        isSelectLocationMode = false;
+        selectLocationBtn.classList.remove('active');
+        selectLocationBtn.setAttribute('data-tooltip', 'Enable Pin Drop Location Mode');
+        document.getElementById('map-container').classList.remove('pin-drop-mode');
+
+        try {
+            const apiUrl = `https://api.opencagedata.com/geocode/v1/json?q=${lat}+${lng}&key=${OPENCAGE_API_KEY}&limit=1`;
+            const response = await fetch(apiUrl);
+            const data = await response.json();
+
+            if (data.results && data.results.length > 0) {
+                const locationName = data.results[0].formatted;
+                
+                const popupContent = `
+                    <div class="map-click-popup">
+                        <div class="popup-location-name">${locationName}</div>
+                        <button id="popup-directions-btn" class="popup-directions-button">Get Directions</button>
+                    </div>
+                `;
+                
+                clickMarker.bindPopup(popupContent).openPopup();
+            } else {
+                clickMarker.bindPopup("Could not identify location.").openPopup();
+            }
+        } catch (error) {
+            console.error("Reverse geocoding failed:", error);
+            if (clickMarker) {
+                map.removeLayer(clickMarker);
+            }
+        }
+    }
+
+
+    startWatchingUserLocation();
+
+    const popupObserver = new MutationObserver(() => {
+        const btn = document.querySelector('.leaflet-popup-content #popup-directions-btn');
+        if (btn && !btn._handlerAttached) {
+            btn._handlerAttached = true;
+            btn.onclick = function() {
+            
+                const popup = btn.closest('.leaflet-popup-content');
+                const marker = Object.values(map._layers).find(l => l._popup && l._popup._contentNode === popup);
+                const latlng = marker ? marker.getLatLng() : null;
+                const locationName = popup.innerHTML.match(/<div class=\"popup-location-name\">(.*?)<\/div>/)?.[1] || 'Selected Location';
+                if (userCoords && latlng) {
+                    showFindingRouteInInfoBox(locationName);
+                    getRouteAndDisplay(userCoords, { lat: latlng.lat, lng: latlng.lng }, locationName);
+                    map.closePopup();
+                } else {
+                    showToast('User location not available for routing.');
+                }
+              
+                isSelectLocationMode = false;
+                selectLocationBtn.classList.remove('active');
+                selectLocationBtn.setAttribute('data-tooltip', 'Enable Pin Drop Location Mode');
+                document.getElementById('map-container').classList.remove('pin-drop-mode');
+            };
+        }
+    });
+
+    map.on('popupopen', function(e) {
+        popupObserver.observe(e.popup._contentNode, { childList: true, subtree: true });
+    });
+    map.on('popupclose', function(e) {
+        popupObserver.disconnect();
+    });
 }); 
