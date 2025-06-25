@@ -34,7 +34,7 @@
             </div>
         </div>
         <div class="menu-content">
-            
+            <!-- Content for the expanded menu will go here -->
         </div>
     </div>
 
@@ -43,11 +43,21 @@
     <div id="toast-container"></div>
     <div class="map-overlay" id="map-overlay"></div>
 
+    <div id="route-info-box" style="display:none;"></div>
+
     <div class="top-right-controls">
         <button class="north-button">N</button>
     </div>
 
     <div class="bottom-right-controls">
+        <button id="select-location-btn" class="map-mode-button" data-tooltip="Enable Pin Drop Location Mode">
+            <svg width="56" height="56" viewBox="0 0 56 56" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <rect width="56" height="56" rx="16" fill="#F5F5F5"/>
+                <path fill-rule="evenodd" clip-rule="evenodd" d="M28 10C34.0751 10 39 15.1158 39 21.4265C39 27.3701 34.6314 32.2538 29.0476 32.8018V44.8235C29.0476 45.4245 28.5786 45.9118 28 45.9118C27.4214 45.9118 26.9524 45.4245 26.9524 44.8235V32.8018C21.3686 32.2538 17 27.3701 17 21.4265C17 15.1158 21.9249 10 28 10Z" fill="#004D98"/>
+                <path d="M31.6667 21.4264C31.6667 19.3229 30.0251 17.6176 28 17.6176C25.975 17.6176 24.3334 19.3229 24.3334 21.4264C24.3334 23.53 25.975 25.2353 28 25.2353C30.0251 25.2353 31.6667 23.53 31.6667 21.4264Z" fill="white"/>
+                <path opacity="0.3" d="M28 47C29.4465 47 30.6191 46.391 30.6191 45.6397C30.6191 44.8884 29.4465 44.2794 28 44.2794C26.5536 44.2794 25.381 44.8884 25.381 45.6397C25.381 46.391 26.5536 47 28 47Z" fill="#004D98"/>
+            </svg>
+        </button>
         <button class="nav-button">
             <svg width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <path d="M20 0C8.95336 0 0 8.95336 0 20C0 31.0466 8.95336 40 20 40C31.0466 40 40 31.0466 40 20C40 8.95336 31.045 0 20 0Z" fill="#004D98"/>
