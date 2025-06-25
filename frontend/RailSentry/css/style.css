@@ -23,6 +23,10 @@ body {
     background-color: #f5f5f5;
 }
 
+#map-container.pin-drop-mode {
+    cursor: url('data:image/svg+xml;utf8,<svg width="32" height="40" viewBox="0 0 32 40" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M16 40C16 40 32 24.5685 32 16C32 7.16344 24.8366 0 16 0C7.16344 0 0 7.16344 0 16C0 24.5685 16 40 16 40Z" fill="%23004D98"/><circle cx="16" cy="16" r="6" fill="white"/></svg>') 0 32, pointer;
+}
+
 .search-bar-container {
     position: absolute;
     top: 1.6rem;
@@ -243,7 +247,7 @@ body {
     box-shadow: 0rem 0.4rem 0.4rem 0.2rem rgba(0, 0, 0, 0.25);
 }
 
-.nav-button {
+.nav-button, .map-mode-button {
     width: 5.6rem;
     height: 5.6rem;
     background: #F5F5F5;
@@ -254,6 +258,73 @@ body {
     display: flex;
     justify-content: center;
     align-items: center;
+    transition: background 0.18s, transform 0.15s, box-shadow 0.18s, border 0.18s;
+    padding: 0;
+}
+.nav-button:hover, .map-mode-button:hover {
+    background-color: #d9eaff;
+    transform: scale(1.08);
+    box-shadow: 0 0.8rem 1.6rem rgba(0,77,152,0.2);
+}
+.nav-button:active, .map-mode-button:active {
+    background-color: #b9d9ff;
+    transform: scale(0.96);
+    box-shadow: 0 0.2rem 0.4rem rgba(0,77,152,0.15);
+}
+
+.map-mode-button.active {
+    background-color: #c8e4ff;
+    border: 2px solid #004D98;
+}
+
+.map-mode-button::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    left: -12px;
+    top: 50%;
+    transform: translate(-100%, -50%);
+    background-color: #333;
+    color: #fff;
+    padding: 0.5rem 1.1rem;
+    border-radius: 1.2rem;
+    font-size: 1.25rem;
+    min-width: 0;
+    max-width: 220px;
+    text-align: left;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.2s, visibility 0.2s;
+    pointer-events: none;
+    z-index: 10002;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.13);
+    line-height: 1.4;
+}
+.map-mode-button:hover::after {
+    opacity: 1;
+    visibility: visible;
+}
+.map-mode-button {
+    position: relative;
+}
+.map-mode-button::before {
+    content: '';
+    position: absolute;
+    left: -6px;
+    top: 50%;
+    transform: translateY(-50%);
+    border-width: 7px 0 7px 7px;
+    border-style: solid;
+    border-color: transparent transparent transparent #333;
+    opacity: 0;
+    transition: opacity 0.2s;
+    pointer-events: none;
+    z-index: 10003;
+}
+.map-mode-button:hover::before {
+    opacity: 1;
 }
 
 .zoom-controls {
@@ -327,6 +398,7 @@ body {
 .suggestion-item {
     display: flex;
     align-items: center;
+    justify-content: space-between;
     gap: 1.4rem;
     padding: 1.6rem 2.4rem;
     cursor: pointer;
@@ -344,6 +416,38 @@ body {
 .suggestion-item:hover, .suggestion-item.selected {
     background: #e6f2ff;
     box-shadow: 0 2px 8px rgba(0,77,152,0.08);
+}
+
+.suggestion-text {
+    flex-grow: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.delete-suggestion {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 0.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    transition: background 0.2s;
+}
+
+.delete-suggestion:hover {
+    background: #ddeafb;
+}
+
+.delete-suggestion svg {
+    stroke: #888;
+    transition: stroke 0.2s;
+}
+
+.delete-suggestion:hover svg {
+    stroke: #333;
 }
 
 .suggestion-icon {
@@ -483,4 +587,81 @@ body {
     font-weight: 600;
     color: #004D98;
     font-family: 'Inter', 'Arial', sans-serif;
+}
+
+#route-info-box {
+    position: fixed;
+    left: 50%;
+    bottom: 10.4rem;
+    transform: translateX(-50%);
+    min-width: 28rem;
+    max-width: 90vw;
+    background: #fff;
+    color: #222;
+    border-radius: 2.4rem;
+    box-shadow: 0 0.4rem 1.2rem rgba(0,77,152,0.13);
+    padding: 1.6rem 2.8rem;
+    font-size: 2.1rem;
+    font-family: 'Inter', sans-serif;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 1.6rem;
+    z-index: 10001;
+    border: 2px solid #004D98;
+    transition: opacity 0.3s, transform 0.3s;
+    opacity: 0;
+    pointer-events: none;
+}
+#route-info-box.visible {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateX(-50%) scale(1.03);
+}
+#route-info-box .route-icon {
+    display: flex;
+    align-items: center;
+    color: #004D98;
+    margin-right: 0.8rem;
+}
+
+.spinner {
+    display: inline-block;
+    width: 1.6rem;
+    height: 1.6rem;
+    border: 0.22em solid #c8e4ff;
+    border-top: 0.22em solid #004D98;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    margin-right: 0.8rem;
+    vertical-align: middle;
+}
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.map-click-popup {
+    text-align: center;
+    font-family: 'Inter', sans-serif;
+}
+.popup-location-name {
+    font-size: 1.6rem;
+    font-weight: 600;
+    color: #333;
+    margin-bottom: 1.2rem;
+}
+.popup-directions-button {
+    background-color: #004D98;
+    color: #fff;
+    border: none;
+    padding: 0.8rem 1.6rem;
+    font-size: 1.4rem;
+    font-weight: 500;
+    border-radius: 1.2rem;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+.popup-directions-button:hover {
+    background-color: #005bb5;
 }
