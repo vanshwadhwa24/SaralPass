@@ -1,5 +1,3 @@
-// Add your scripts here 
-
 document.addEventListener('DOMContentLoaded', () => {
     const menuToggle = document.getElementById('menu-toggle');
     const expandableMenu = document.getElementById('expandable-menu');
@@ -12,7 +10,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const zoomOutButton = document.getElementById('zoom-out');
 
     let userCoords = null;
-    let userLocationInfo = null; // To store city, state, country
+    let userLocationInfo = null; 
     let debounceTimer = null;
     const OPENCAGE_API_KEY = 'c5fff8aba63d4fd2aa64d2d14c320f5a';
 
@@ -57,7 +55,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (newIndex >= items.length) newIndex = items.length - 1;
         selectedSuggestionIndex = newIndex;
         items[selectedSuggestionIndex].classList.add('selected');
-        // Scroll into view if needed
         items[selectedSuggestionIndex].scrollIntoView({ block: 'nearest' });
     }
     function selectCurrentSuggestion() {
@@ -138,7 +135,6 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        // Add user's location context to the query for more relevant results
         if (userLocationInfo) {
             const context = [userLocationInfo.city, userLocationInfo.state, userLocationInfo.country].filter(Boolean).join(', ');
             query = `${query}, ${context}`;
@@ -264,13 +260,11 @@ document.addEventListener('DOMContentLoaded', () => {
             async (position) => {
                 const { latitude, longitude } = position.coords;
                 
-                // Store coordinates for search biasing
+
                 userCoords = {
                     lat: latitude,
                     lng: longitude
                 };
-
-                // Reverse geocode to get city, state, country for better search context
                 const response = await fetch(`https://api.opencagedata.com/geocode/v1/json?q=${userCoords.lat}+${userCoords.lng}&key=${OPENCAGE_API_KEY}`);
                 const data = await response.json();
                 if (data.results && data.results.length > 0) {
@@ -336,7 +330,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const allowBtn = document.getElementById('location-popup-allow');
     if (allowBtn) {
         allowBtn.addEventListener('click', function() {
-            // Request geolocation permission
             if (navigator.geolocation) {
                 navigator.geolocation.getCurrentPosition(function() {}, function() {});
             }
