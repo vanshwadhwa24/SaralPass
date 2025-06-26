@@ -1,22 +1,32 @@
 const express = require("express");
 const router = express.Router();
-const axios = require("axios");
-const cheerio = require("cheerio");
-
 const loadStations = require("../utils/loadStations");
 const loadCrossings = require("../utils/loadCrossings");
-const { getDistanceFromLatLonInKm } = require("../utils/geo");
-const fetchLiveStatus = require("../utils/fetchLiveTrainStatus");
 const fetchTrainsAtStation = require("../utils/fetchTrainsAtStation");
-const { parseTimeToToday } = require("../utils/time");
-
+const fetchLiveStatus = require("../utils/fetchLiveTrainStatus");
+const { getDistanceFromLatLonInKm } = require("../utils/geo");
+const parseTimeToToday = require("../utils/time");
 
 const stations = loadStations();
-console.log("🧾 Sample Station Data:", stations[0]);
 const crossings = loadCrossings();
 
+function findNearestStationTo(lat, lon) {
+  let nearest = null;
+  let minDist = Infinity;
+
+  for (const station of stations) {
+    const dist = getDistanceFromLatLonInKm(lat, lon, station.lat, station.lon);
+    if (dist < minDist) {
+      minDist = dist;
+      nearest = station;
+    }
+  }
+
+  return nearest;
+}
+
 router.get("/", async (req, res) => {
-  const { lat, lon, radius = 10 } = req.query;
+  const { lat, lon } = req.query;
 
   if (!lat || !lon) {
     return res.status(400).json({ error: "lat and lon are required" });
@@ -24,46 +34,10 @@ router.get("/", async (req, res) => {
 
   const userLat = parseFloat(lat);
   const userLon = parseFloat(lon);
-  const maxDistance = parseFloat(radius);
 
   console.log("🌍 Received query:", { lat, lon });
 
-  // 1️⃣ Find nearby stations
-  const nearbyStations = stations.filter(station => {
-    const dist = getDistanceFromLatLonInKm(userLat, userLon, station.lat, station.lon);
-    return dist <= maxDistance;
-  });
-
-  console.log("🛰️ Nearby Stations:", nearbyStations.map(s => s.ref));
-
-  let allTrainStatuses = [];
-
-  // 2️⃣ For each station, get trains
-  for (const station of nearbyStations) {
-    const trains = await fetchTrainsAtStation(station.ref);
-    console.log(`🚂 Trains at ${station.ref}:`, trains.map(t => t.number));
-
-    // 3️⃣ For each train, fetch live status
-    for (const train of trains) {
-      const status = await fetchLiveStatus(train.number);
-      console.log(`📡 Status for train ${train.number}:`, status);
-
-      if (status && status.currentStation !== "No data") {
-        status.trainNumber = train.number;
-        status.trainName = train.name || "Unknown";
-        status.sourceStation = station.ref;
-        allTrainStatuses.push(status);
-      }
-    }
-  }
-
-  console.log("📊 All Train Statuses:", allTrainStatuses);
-
-  if (allTrainStatuses.length === 0) {
-    return res.status(404).json({ message: "No train data found" });
-  }
-
-  // 4️⃣ Get nearby crossings
+  // 1️⃣ Get crossings near user
   const nearbyCrossings = crossings.filter(crossing => {
     const [crossLon, crossLat] = crossing.geometry.coordinates;
     const dist = getDistanceFromLatLonInKm(userLat, userLon, crossLat, crossLon);
@@ -72,55 +46,135 @@ router.get("/", async (req, res) => {
 
   console.log("🚧 Nearby Crossings:", nearbyCrossings.length);
 
-  // 5️⃣ Predict crossing closures
-  const enrichedStatuses = allTrainStatuses.flatMap(train => {
-    return nearbyCrossings.map(crossing => {
-      const [crossLon, crossLat] = crossing.geometry.coordinates;
+  if (nearbyCrossings.length === 0) {
+    return res.status(404).json({ message: "No nearby crossings found." });
+  }
 
-      const stationObj = stations.find(s => s.ref === train.sourceStation);
-      if (!stationObj) return null;
+function findNearestCrossingTo(lat, lon, list) {
+  let nearest = null;
+  let minDist = Infinity;
 
-      const distanceToCrossing = getDistanceFromLatLonInKm(
-        stationObj.lat,
-        stationObj.lon,
+  for (const crossing of list) {
+    const [crossLon, crossLat] = crossing.geometry.coordinates;
+    const dist = getDistanceFromLatLonInKm(lat, lon, crossLat, crossLon);
+    if (dist < minDist) {
+      minDist = dist;
+      nearest = crossing;
+    }
+  }
+
+  return nearest;
+}
+
+const nearestCrossing = findNearestCrossingTo(userLat, userLon, nearbyCrossings);
+
+
+if (!nearestCrossing) {
+  return res.status(404).json({ message: "No crossing nearby." });
+}
+
+
+  // 2️⃣ For crossing, find nearest station and fetch trains
+  const crossing = nearestCrossing;
+
+    const [crossLon, crossLat] = crossing.geometry.coordinates;
+    const crossingName = crossing.properties?.name || "Unnamed Crossing";
+
+    const nearestStation = findNearestStationTo(crossLat, crossLon);
+    // if (!nearestStation) continue;
+
+    console.log(`📍 Nearest station to ${crossingName}: ${nearestStation.ref}`);
+
+    const trains = await fetchTrainsAtStation(nearestStation.ref);
+    console.log(`🚂 Trains at ${nearestStation.ref}:`, trains.map(t => t.number));
+
+    for (const train of trains) {
+      const status = await fetchLiveStatus(train.number);
+      console.log(`📡 Status for train ${train.number}:`, status);
+
+      if (!status || status.currentStationName === "No data") continue;
+
+      // 🚦 Smart prediction starts here
+      const now = new Date();
+      const currentStation = status.current_station;
+      const nextStation = status.upcoming_stations?.[0];
+      if (!currentStation || !nextStation) continue;
+
+      const distanceToPrev = getDistanceFromLatLonInKm(
+        currentStation.lat,
+        currentStation.lon,
+        crossLat,
+        crossLon
+      );
+      const distanceToNext = getDistanceFromLatLonInKm(
+        nextStation.lat,
+        nextStation.lon,
         crossLat,
         crossLon
       );
 
-      const avgSpeed = distanceToCrossing > 5 ? 60 : 30; // km/h
-      const timeToCrossing = (distanceToCrossing / avgSpeed) * 60; // minutes
+      const aheadDistance = status.ahead_distance ?? 0;
+      const distToNext = nextStation.distance_from_current_station ?? 0;
 
-      const now = new Date();
-    const etaTime = parseTimeToToday(train.nextStopETA); // e.g., '22:16'
+      const etdTime = parseTimeToToday(currentStation.etd);
+      const etaTime = parseTimeToToday(nextStation.eta);
 
-      const delay = train.delayInMinutes ?? 0;
+      const minutesSinceETD = (now - etdTime) / 60000;
+      const minutesUntilETA = (etaTime - now) / 60000;
 
-      const etaWithDelay = new Date(etaTime.getTime() + delay * 60000);
-      const timeRemaining = (etaWithDelay.getTime() - now.getTime()) / 60000; // in minutes
+      const speedFromETD = aheadDistance / (minutesSinceETD || 1);
+      const speedToNext = distToNext / (minutesUntilETA || 1);
+      const avgSpeed = (speedFromETD + speedToNext) / 2 || 1;
 
-      const crossingWindow = 8; // 5 before, 1 during, 2 after
-      const willClose = timeRemaining <= timeToCrossing + crossingWindow;
+    const t1 = distanceToNext / avgSpeed;
+const t2 = distanceToPrev / avgSpeed;
 
-      return {
-        train: train.trainName,
-        number: train.trainNumber,
-        crossingName: crossing.properties?.name || "Unnamed Crossing",
-        sourceStation: train.sourceStation,
-        distanceToCrossing: distanceToCrossing.toFixed(2),
-        timeRemaining: Math.round(timeRemaining),
-        etaWithDelay: etaWithDelay.toISOString(),
-        willClose,
-      };
-    }).filter(Boolean);
+const t1Gap = minutesUntilETA - t1;
+const t2Gap = t2 - minutesSinceETD;
+
+const crossingWindow = 8;
+
+const t1Weight = 1 - Math.min(Math.abs(t1Gap) / crossingWindow, 1);
+const t2Weight = 1 - Math.min(Math.abs(t2Gap) / crossingWindow, 1);
+
+// 🚨 Max of both — if *either* is suspicious
+const likelihoodScore = Math.max(t1Weight, t2Weight);
+
+// You can still use a binary fallback if needed
+const willClose = likelihoodScore > 0.6;
+if(willClose){
+console.log(`🚨 Train ${train.number} will likely cause "${crossingName}" to close!`);
+return res.json({
+    willClose: true,
+    train: train.number,
+    crossingName,
+    nearestStation: nearestStation.ref,
+    eta: etaTime.toISOString()
   });
+}
+       if (!willClose && avgSpeed > 1) {
+  const distanceToCrossing = Math.min(distanceToPrev, distanceToNext);
 
-  const closingSoon = enrichedStatuses.filter(e => e.willClose);
-  console.log("🚨 Closings predicted:", closingSoon.length);
+  const etaCrossing = new Date(etaTime.getTime() - (distanceToNext / avgSpeed) * 60000);
+  const etdCrossing = new Date(etdTime.getTime() + (distanceToPrev / avgSpeed) * 60000);
 
-  res.json({
-    predictedClosures: closingSoon,
-    allPredictions: enrichedStatuses
-  });
+  const estimatedCrossingTime = new Date(Math.min(etaCrossing, etdCrossing));
+
+  const closureStart = new Date(estimatedCrossingTime.getTime() - 5 * 60000);
+  const closureEnd = new Date(estimatedCrossingTime.getTime() + 2 * 60000);
+
+  console.log(`⏳ [FUTURE PREDICTION] Train ${train.number} might cause "${crossingName}" to close from ${closureStart.toLocaleTimeString()} to ${closureEnd.toLocaleTimeString()}`);
+}
+    }
+ 
+ return res.json({
+  willClose: false,
+  message: `No train is expected to close "${crossingName}" right now.`
 });
+
+
+});
+
+
 
 module.exports = router;

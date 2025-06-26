@@ -1,4 +1,3 @@
-// utils/fetchLiveTrainStatus.js
 const axios = require("axios");
 const cheerio = require("cheerio");
 
@@ -11,29 +10,67 @@ async function fetchLiveStatus(trainNo) {
     const $ = cheerio.load(html);
     const nextDataScript = $("#__NEXT_DATA__").html();
     const jsonData = JSON.parse(nextDataScript);
+    const lts = jsonData.props?.pageProps?.ltsData;
 
-    const lts = jsonData.props.pageProps.ltsData;
+    if (!lts || !lts.success) {
+      throw new Error("Invalid or missing ltsData structure.");
+    }
+
+    // 🚩 Extract fields exactly as per your blob
+    const {
+      train_name,
+      train_number,
+      current_station_name,
+      current_station_code,
+      status,
+      eta,
+      etd,
+      delay,
+      ahead_distance,
+      ahead_distance_text,
+      update_time,
+      travelling_towards,
+      upcoming_stations,
+      distance_from_source,
+      total_distance,
+    } = lts;
+
+    const nextStop = upcoming_stations?.[0]; // ✅ First station is always the next stop
 
     return {
-      trainName: lts.train_name,
-      currentStation: lts.current_station_name,
-      delayInMinutes: lts.delay,
-      eta: lts.eta,
-      etd: lts.etd,
-      nextStop: lts.upcoming_stations?.[1]?.station_name || "No upcoming stop",
-      nextStopETA: lts.upcoming_stations?.[1]?.eta || "N/A",
-      nextStopDelay: lts.upcoming_stations?.[1]?.arrival_delay || 0
+      trainName: train_name,
+      trainNumber: train_number,
+      currentStationName: current_station_name,
+      currentStationCode: current_station_code,
+      eta,
+      etd,
+      delayInMinutes: delay,
+      aheadDistanceInKm: ahead_distance,
+      aheadDistanceText: ahead_distance_text,
+      updateTime: update_time,
+      direction: travelling_towards,
+      distanceFromSource: distance_from_source,
+      totalDistance: total_distance,
+
+      nextStopName: nextStop?.station_name || "N/A",
+      nextStopCode: nextStop?.station_code || "N/A",
+      nextStopETA: nextStop?.eta || "N/A",
+      nextStopETD: nextStop?.etd || "N/A",
+      nextStopArrivalDelay: nextStop?.arrival_delay || 0,
+      nextStopDistanceFromCurrent: nextStop?.distance_from_current_station || null
     };
   } catch (err) {
     console.error(`❌ Error fetching live status for ${trainNo}:`, err.message);
     return null;
   }
 }
+
 module.exports = fetchLiveStatus;
 
-
-// Test run
-(async () => {
-  const status = await fetchLiveStatus("12052");
-  console.log("🚂 Live Status:", status);
-})();
+// 🧪 Direct test (you can comment this block during real use)
+if (require.main === module) {
+  (async () => {
+    const result = await fetchLiveStatus("12556");
+    console.log("🚂 Live Train Data:", result);
+  })();
+}

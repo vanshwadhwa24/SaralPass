@@ -10,3 +10,4 @@ function parseTimeToToday(plainTime) {
 
   return eta;
 }
+module.exports = parseTimeToToday;
