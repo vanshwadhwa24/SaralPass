@@ -33,7 +33,7 @@ body {
     left: 2.4rem;
     width: 44.2rem;
     max-width: 90%;
-    height: 7.2rem; /* Collapsed height */
+    height: 7.2rem; 
     background-color: #F5F5F5;
     box-shadow: 0rem 0.4rem 0.4rem rgba(0, 0, 0, 0.25);
     border-radius: 4rem;
@@ -125,7 +125,7 @@ body {
 
 .hamburger-menu.open .line:nth-child(2) {
     opacity: 0;
-    width: 3.6rem; /* Ensure it animates correctly */
+    width: 3.6rem; 
 }
 
 .hamburger-menu.open .line:nth-child(3) {
@@ -599,7 +599,7 @@ body {
     backdrop-filter: blur(10px);
     border: 1px solid rgba(0, 77, 152, 0.2);
     border-radius: 1.2rem;
-    padding: 2.8rem 3.2rem 1.6rem 2rem; /* top, right, bottom, left */
+    padding: 2.8rem 3.2rem 1.6rem 2rem; 
     box-shadow: 0 0.4rem 1.2rem rgba(0, 0, 0, 0.15);
     font-size: 1.4rem;
     color: #333;
@@ -622,7 +622,7 @@ body {
     vertical-align: middle;
 }
 
-/* Traffic information styling */
+
 .traffic-info {
     display: inline-flex;
     align-items: center;
@@ -659,13 +659,13 @@ body {
     color: #888;
 }
 
-/* Traffic delay indicator */
+
 .traffic-delay {
     font-weight: 600;
     margin-left: 0.3rem;
 }
 
-/* Route line colors for different traffic levels */
+
 .route-traffic-light {
     color: #4CAF50 !important;
 }
