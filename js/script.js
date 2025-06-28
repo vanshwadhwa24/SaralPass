@@ -14,20 +14,16 @@ document.addEventListener('DOMContentLoaded', () => {
     let userLocationInfo = null; 
     let debounceTimer = null;
     const OPENCAGE_API_KEY = 'c5fff8aba63d4fd2aa64d2d14c320f5a';
-    const TOMTOM_API_KEY = 'YOMlTNAorrvGHZOMdM7XsWNPVR4WeXIP'; 
-    const USE_OPENROUTE_SERVICE = false; 
     let routePolyline = null;
     let currentRouteAbortController = null;
     let currentDestination = null;
     let userLocationWatchId = null;
-    let locatingToastId = null;
     let clickMarker = null;
     let isSelectLocationMode = false;
     let useMiles = false;
     const toggleMiles = document.getElementById('toggle-miles');
     toggleMiles.onchange = function() {
         useMiles = toggleMiles.checked;
-        // If a route is active, refresh the info box with the new unit
         if (routePolyline && currentDestination) {
             if (window.lastRouteInfo) {
                 showRouteInfoBox(window.lastRouteInfo.distanceKm, window.lastRouteInfo.durationMin, window.lastRouteInfo.destName, window.lastRouteInfo.trafficInfo);
@@ -41,7 +37,6 @@ document.addEventListener('DOMContentLoaded', () => {
         zoomControl: false
     });
     
-    // Debug: Check if map container exists and map is initialized
     console.log('Map container:', document.getElementById('map-container'));
     console.log('Map initialized:', map);
     
@@ -49,7 +44,6 @@ document.addEventListener('DOMContentLoaded', () => {
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
     }).addTo(map);
     
-    // Debug: Check if tile layer is added
     console.log('Tile layer added to map');
 
     let userLocationMarker = null;
@@ -173,7 +167,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 const location = new L.LatLng(lat, lng);
                 map.setView(location, 13);
                 
-                // Remove previous destination marker and add new one
                 if (destinationMarker) map.removeLayer(destinationMarker);
                 destinationMarker = L.marker(location, {
                     icon: L.divIcon({
@@ -485,24 +478,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const cancelRouteBtn = document.getElementById('cancel-route-btn');
     cancelRouteBtn.onclick = function() {
-        // Remove route polyline
         if (routePolyline) {
             map.removeLayer(routePolyline);
             routePolyline = null;
         }
-        // Hide route info box
+    
         hideRouteInfoBox();
-        // Remove start marker
         if (window.startLocationMarker) {
             map.removeLayer(window.startLocationMarker);
             window.startLocationMarker = null;
         }
-        // Remove destination marker
         if (destinationMarker) {
             map.removeLayer(destinationMarker);
             destinationMarker = null;
         }
-        // Remove click marker (if any)
         if (clickMarker) {
             map.removeLayer(clickMarker);
             clickMarker = null;
@@ -510,7 +499,6 @@ document.addEventListener('DOMContentLoaded', () => {
         cancelRouteBtn.style.display = 'none';
     };
 
-    // Show the cancel button when a route is displayed
     function showRouteInfoBox(distanceKm, durationMin, destName, trafficInfo) {
         const box = document.getElementById('route-info-box');
         const etaStr = formatDurationMinutes(durationMin);
@@ -544,13 +532,13 @@ document.addEventListener('DOMContentLoaded', () => {
         `;
         box.classList.add('visible');
         box.style.display = '';
-        // Re-attach the event handler
+
         const newCancelBtn = document.getElementById('cancel-route-btn');
         if (newCancelBtn) {
             newCancelBtn.onclick = cancelRouteBtn.onclick;
             newCancelBtn.style.display = 'block';
         }
-        // Store last route info for unit switching
+ 
         window.lastRouteInfo = { distanceKm, durationMin, destName, trafficInfo };
     }
 
@@ -621,23 +609,11 @@ document.addEventListener('DOMContentLoaded', () => {
         showFindingRouteInInfoBox(destName);
         try {
             let routeData = null;
-            let useTrafficData = false;
 
-            // Try TomTom API first (if user has API key - excellent traffic data)
-            if (TOMTOM_API_KEY) {
-                try {
-                    routeData = await getTomTomRoute(userCoords, destCoords);
-                    useTrafficData = true;
-                    console.log('Using TomTom API with traffic data');
-                } catch (error) {
-                    console.log('TomTom API failed, falling back to OSRM:', error);
-                }
-            }
-
-            // Use OSRM as final fallback, only if coordinates are valid
-            if (!routeData && userCoords && destCoords && destCoords.lat && destCoords.lng) {
+        
+            if (userCoords && destCoords && destCoords.lat && destCoords.lng) {
                 routeData = await getOSRMRoute(userCoords, destCoords);
-                console.log('Using OSRM fallback (no traffic data)');
+                console.log('Using OSRM (no traffic data)');
             }
 
             if (!routeData) {
@@ -646,7 +622,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
 
-            // Display route on map
+        
             const routeColor = getRouteColor(routeData.trafficInfo ? routeData.trafficInfo.trafficLevel : 'unknown');
             routePolyline = L.polyline(routeData.coordinates, {
                 color: routeColor,
@@ -655,7 +631,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }).addTo(map);
             map.fitBounds(routePolyline.getBounds(), { padding: [50, 50] });
 
-            // Show route info with traffic indication
+       
             const { distanceKm, durationMin, trafficInfo } = routeData;
             showRouteInfoBox(distanceKm, durationMin, destName, trafficInfo);
 
@@ -673,7 +649,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // OSRM fallback routing
     async function getOSRMRoute(userCoords, destCoords) {
         const url = `https://router.project-osrm.org/route/v1/driving/${userCoords.lng},${userCoords.lat};${destCoords.lng},${destCoords.lat}?overview=full&geometries=geojson`;
         
@@ -700,7 +675,7 @@ document.addEventListener('DOMContentLoaded', () => {
         };
     }
 
-    // Decode Google's encoded polyline
+  
     function decodePolyline(encoded) {
         const poly = [];
         let index = 0, len = encoded.length;
@@ -736,7 +711,7 @@ document.addEventListener('DOMContentLoaded', () => {
         return poly;
     }
 
-    // Determine traffic level based on route data
+
     function getTrafficLevel(leg) {
         if (!leg.duration_in_traffic) return 'unknown';
         
@@ -750,7 +725,7 @@ document.addEventListener('DOMContentLoaded', () => {
         return 'severe';
     }
 
-    // for watching user location on page load
+  
     function startWatchingUserLocation() {
         if (!navigator.geolocation) {
             showToast('Geolocation is not supported by your browser.');
@@ -766,7 +741,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     lng: position.coords.longitude
                 };
                 showUserLocationOnMap(userCoords);
-                // If a destination is set, update the route and ETA
+                
                 if (currentDestination) {
                     getRouteAndDisplay(userCoords, { lat: currentDestination.lat, lng: currentDestination.lng }, currentDestination.name);
                 }
@@ -859,13 +834,13 @@ document.addEventListener('DOMContentLoaded', () => {
         if (btn && !btn._handlerAttached) {
             btn._handlerAttached = true;
             btn.onclick = function() {
-                // Find the marker and location name
+  
                 const popup = btn.closest('.leaflet-popup-content');
                 const marker = Object.values(map._layers).find(l => l._popup && l._popup._contentNode === popup);
                 const latlng = marker ? marker.getLatLng() : null;
                 const locationName = popup.innerHTML.match(/<div class=\"popup-location-name\">(.*?)<\/div>/)?.[1] || 'Selected Location';
                 if (latlng) {
-                    // Use the modal for start location selection
+    
                     showStartLocationModal({ lat: latlng.lat, lng: latlng.lng, name: locationName });
                     map.closePopup();
                 } else {
@@ -886,85 +861,7 @@ document.addEventListener('DOMContentLoaded', () => {
         popupObserver.disconnect();
     });
 
-    // TomTom Directions API with traffic data
-    async function getTomTomRoute(userCoords, destCoords) {
-        const url = `https://api.tomtom.com/routing/1/calculateRoute/${userCoords.lat},${userCoords.lng}:${destCoords.lat},${destCoords.lng}/json?key=${TOMTOM_API_KEY}&routeType=fastest&traffic=true&avoid=unpavedRoads&travelMode=car`;
-        
-        const response = await fetch(url, { signal: currentRouteAbortController.signal });
-        if (!response.ok) {
-            throw new Error('TomTom API request failed');
-        }
-        
-        const data = await response.json();
-        if (data.routes && data.routes.length > 0) {
-            const route = data.routes[0];
-            const leg = route.legs[0];
-            
-            // Extract coordinates from the route
-            const coordinates = route.legs[0].points.map(point => [point.latitude, point.longitude]);
-            
-            // Calculate duration (TomTom provides duration in seconds)
-            const durationMin = Math.round(leg.summary.lengthInMeters / 1000 * 2); // Rough estimate
-            const distanceKm = (leg.summary.lengthInMeters / 1000).toFixed(2);
-            
-            // Traffic information (TomTom provides traffic data)
-            const trafficInfo = {
-                hasTrafficData: true,
-                trafficDelay: calculateTomTomTrafficDelay(leg),
-                trafficLevel: getTomTomTrafficLevel(leg)
-            };
-            
-            return {
-                coordinates,
-                distanceKm,
-                durationMin,
-                trafficInfo
-            };
-        } else {
-            throw new Error('No route found in TomTom response');
-        }
-    }
 
-    // Calculate traffic delay from TomTom leg data
-    function calculateTomTomTrafficDelay(leg) {
-        // TomTom provides traffic data in the leg
-        let totalDelay = 0;
-        if (leg.guidance) {
-            leg.guidance.forEach(instruction => {
-                // Estimate delay based on traffic conditions
-                if (instruction.traffic && instruction.traffic.delayInSeconds) {
-                    totalDelay += instruction.traffic.delayInSeconds;
-                }
-            });
-        }
-        return Math.round(totalDelay / 60); // Convert to minutes
-    }
-
-    // Get traffic level from TomTom traffic data
-    function getTomTomTrafficLevel(leg) {
-        let totalTrafficLevel = 0;
-        let totalInstructions = 0;
-        
-        if (leg.guidance) {
-            leg.guidance.forEach(instruction => {
-                totalInstructions++;
-                if (instruction.traffic) {
-                    // TomTom provides traffic levels: 0-4 (0=no traffic, 4=heavy traffic)
-                    const trafficLevel = instruction.traffic.level || 0;
-                    totalTrafficLevel += trafficLevel;
-                }
-            });
-        }
-        
-        const avgTrafficLevel = totalInstructions > 0 ? totalTrafficLevel / totalInstructions : 0;
-        
-        if (avgTrafficLevel < 1) return 'light';
-        if (avgTrafficLevel < 2) return 'moderate';
-        if (avgTrafficLevel < 3) return 'heavy';
-        return 'severe';
-    }
-
-    // --- Start Location Modal Logic ---
     const startLocationModal = document.getElementById('start-location-modal');
     const modalUseMyLocation = document.getElementById('modal-use-my-location');
     const modalSelectOnMap = document.getElementById('modal-select-on-map');
@@ -1007,7 +904,7 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('map-container').classList.remove('pin-drop-mode');
         console.log('Map click for start location:', e.latlng, 'pendingDestination:', pendingDestination);
         if (pendingDestination && pendingDestination.lat && pendingDestination.lng) {
-            // Drop a marker at the selected start location for feedback
+      
             if (window.startLocationMarker) map.removeLayer(window.startLocationMarker);
             window.startLocationMarker = L.marker([e.latlng.lat, e.latlng.lng], {
                 icon: L.divIcon({
@@ -1028,9 +925,7 @@ document.addEventListener('DOMContentLoaded', () => {
             showToast('Please select a valid destination.');
         }
     });
-    // --- End Start Location Modal Logic ---
 
-    // Add CSS for start-marker
     const style = document.createElement('style');
     style.innerHTML = `
     .start-marker { background: transparent !important; border: none !important; }
